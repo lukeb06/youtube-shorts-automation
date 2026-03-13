@@ -4,3 +4,6 @@ audio.mp3
 music.mp3
 background.mp4
 node_modules
+.env
+captions/output.json
+transcript.txt

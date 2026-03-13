@@ -1,5 +1,18 @@
+require('dotenv').config()
+
 const googleTTS = require('google-tts-api'); // CommonJS
 const { default: sfmpg } = require('simple-ffmpegjs');
+
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const ffmpeg = require('fluent-ffmpeg');
+
+const { writeFile, readFile } = require('node:fs/promises');
+
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 const script = `
 I (32 male) work as a cook in a restaurant with an open kitchen, so guest can see us and even talk to us while we work. Two days ago while things were slow a guy walks past our station and asked us for a "favor". He tells us his wife would be walking by in a few minutes and he wanted us to catcall her while she walked past. Stuff like whistling and telling us she looks good.
@@ -11,13 +24,7 @@ A few minutes later his wife walks by and honestly she was gorgeous. She was bas
 Once she sat down, the cook who did it and some of the servers who knew the about the "plan" actually got on our case. They said we were spoilsports and made the whole thing awkward by not joining in. But I just didn't fell comfortable as a Black man catcalling a white woman in a public place and felt it was totally different situation for me than my white coworker.
 
 Now the vibe in the kitchen is weird because they think we were being too serious. Am I the asshole here for just staying silent. 
-`.trim().split('\n').map(v => v.trim()).join(' ');
-
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
-const ffmpeg = require('fluent-ffmpeg');
-
+`.trim().split('\n').map(v => v.trim()).filter(v => !!v).join(' ').trim();
 
 async function downloadFile(url, destination) {
     const file = fs.createWriteStream(destination);
@@ -108,21 +115,72 @@ async function downloadAndConcatAudioFiles(urls, outputFile) {
     return await concatAudioFiles(audioFiles, outputFile);
 }
 
-const { getAudioDurationInSeconds } = require('get-audio-duration')
+function getURLsForText(text) {
+	return text.split('.').map(v => v.trim()).filter(v => !!v).map(v => googleTTS.getAllAudioUrls(v, {
+		lang: 'en',
+		slow: false,
+		host: 'https://translate.google.com',
+		splitPunct: ',.?',
+	}).map(r => r.url)).flat();
+}
+
+async function getAudioDuration(file) {
+	const { duration } = await sfmpg.probe(file);
+	return duration;
+}
+
+async function tts(text, outputFile) {
+	const urls = getURLsForText(text);
+	await downloadAndConcatAudioFiles(urls, outputFile);
+	
+	return await getAudioDuration(outputFile);
+}
+
+async function genCaptions() {
+	console.log('Generating Captions...');
+	const cmd = `${__dirname}/captions/.venv/Scripts/python.exe ${__dirname}/captions/main.py`;
+	const { stdout, stderr } = await execPromise(cmd);
+	console.log(stdout);
+    if (stderr) console.warn(stderr);
+}
+
+async function getCaptions() {
+	try {
+		await genCaptions();
+		
+		const raw = await readFile('./captions/output.json', { encoding: 'utf8' });
+		const data = JSON.parse(raw);
+		if (!data.segments || data.segments.length === 0) return [];
+		
+		return data.segments.map(s => ({
+			type: 'text',
+			mode: 'karaoke',
+			text: s.text,
+			position: s.start,
+			end: s.end,
+			words: s.words.map(w => ({
+				text: w.word,
+				start: w.start,
+				end: w.start <= w.end ? (w.start + 0.2 > s.end ? w.start <= s.end ? s.end + 0.01 : s.end : w.start + 0.2) : w.end
+			})),
+			highlightColor: "#00FF00",
+			fontSize: 100,
+			yPercent: 0.85,
+		}));
+	} catch (e) {
+		console.error(e);
+		return [];
+	}
+}
 
 async function makeVideo() {
+	await writeFile('transcript.txt', script);
+	
     const project = new sfmpg({ preset: 'youtube-short' });
 
-    const urls = googleTTS.getAllAudioUrls(script, {
-        lang: 'en',
-        slow: false,
-        host: 'https://translate.google.com',
-        splitPunct: ',.?',
-    }).map(v => v.url);
-
-    await downloadAndConcatAudioFiles(urls, 'audio.mp3');
-
-    const duration = await getAudioDurationInSeconds('audio.mp3', "/usr/bin/ffprobe");
+	const duration = await tts(script, 'audio.mp3');
+	
+	const captions = await getCaptions();
 
     await project.load([
         {
@@ -140,15 +198,19 @@ async function makeVideo() {
         {
             type: 'music',
             url: 'music.mp3',
-            volume: 0.3,
+            volume: 0.2,
             loop: true,
-        }
+        },
+		...captions
     ]);
 
     await project.export({
         outputPath: "./video.mp4",
-        onProgress: ({ percent }) => console.log(`${percent ?? 0}% complete`),
-        preset: 'ultrafast'
+        onProgress: ({ percent }) => {
+			if (percent) console.log(`${percent}% complete`)
+		},
+        preset: 'ultrafast',
+		hwaccel: process.env.hardware_accel ?? 'none'
     });
 }
 
