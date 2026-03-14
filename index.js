@@ -160,7 +160,7 @@ async function genTitle(text) {
 
     console.log('\n');
 
-    return cleanTitle(title);
+    return title;
 }
 
 async function makeVideo() {
@@ -204,12 +204,15 @@ async function makeVideo() {
     const title = await genTitle(script);
 
     await project.export({
-        outputPath: `${title}.mp4`,
+        outputPath: `${cleanTitle(title)}.mp4`,
         onProgress: ({ percent }) => {
 			if (percent) console.log(`${percent}% complete`)
 		},
         preset: 'ultrafast',
-		hwaccel: process.env.hardware_accel ?? 'none'
+		hwaccel: process.env.hardware_accel ?? 'none',
+        metadata: {
+            title,
+        }
     });
 }
 
