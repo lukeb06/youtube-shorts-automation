@@ -14,17 +14,7 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 
-const script = `
-I (32 male) work as a cook in a restaurant with an open kitchen, so guest can see us and even talk to us while we work. Two days ago while things were slow a guy walks past our station and asked us for a "favor". He tells us his wife would be walking by in a few minutes and he wanted us to catcall her while she walked past. Stuff like whistling and telling us she looks good.
-
-There are three of us on the stations at the time. Me I'm black, a hispanic guy and a white guy. Before I could even process what he was asking me the white guy speaks up and says " Yeah man, we got you." After the customer left, me and the other cook approached the white cook who had agreed and told him we were not comfortable with what he had agreed to and that we were not going to do it. He got mad and said we already agreed but we reminders him no we didn't he agreed, before he could reply a server came and told us the guys wife was about to walk by. I guess the server who took him to his seat told the other servers what was happening.
-
-A few minutes later his wife walks by and honestly she was gorgeous. She was basically walking like she was on a runway and it was pretty obvious she knew what her husband had asked us to do because she was smiling the whole way to her table, But ony the white cook who had agreed was whistling and cheering. Me and the other just stay quiet and kept working.
-
-Once she sat down, the cook who did it and some of the servers who knew the about the "plan" actually got on our case. They said we were spoilsports and made the whole thing awkward by not joining in. But I just didn't fell comfortable as a Black man catcalling a white woman in a public place and felt it was totally different situation for me than my white coworker.
-
-Now the vibe in the kitchen is weird because they think we were being too serious. Am I the asshole here for just staying silent. 
-`.trim().split('\n').map(v => v.trim()).filter(v => !!v).join(' ').trim();
+const { default: ollama } = require('ollama');
 
 async function downloadFile(url, destination) {
     const file = fs.createWriteStream(destination);
@@ -144,50 +134,53 @@ async function genCaptions() {
     if (stderr) console.warn(stderr);
 }
 
-async function getCaptions() {
-	try {
-		await genCaptions();
-		
-		const raw = await readFile('./captions/output.json', { encoding: 'utf8' });
-		const data = JSON.parse(raw);
-		if (!data.segments || data.segments.length === 0) return [];
-		
-		return data.segments.map(s => ({
-			type: 'text',
-			mode: 'karaoke',
-			text: s.text,
-			position: s.start,
-			end: s.end,
-			words: s.words.map(w => ({
-				text: w.word,
-				start: w.start,
-				end: w.start <= w.end ? (w.start + 0.2 > s.end ? w.start <= s.end ? s.end + 0.01 : s.end : w.start + 0.2) : w.end
-			})),
-			highlightColor: "#00FF00",
-			fontSize: 100,
-			yPercent: 0.85,
-		}));
-	} catch (e) {
-		console.error(e);
-		return [];
-	}
+function cleanTitle(text) {
+    return text.replaceAll(/[^a-zA-Z0-9]/g, '_');
+}
+
+async function genTitle(text) {
+    const SYSTEM_PROMPT = "You will be provided with the transcript of a short story. Your task is to generate a SHORT, engaging, clickbait-y title for the short. Your main goal is to drive engagement on the short. Do not include quotations, astericks, or any other special characters besides punctuation and emojis. Do not include extra titling, for example: \"2 Years of Love, 1 Night of Betrayal: My GF Cheated on Me on Our Anniversary 💔💔\" should just be \"My GF Cheated on Me on Our Anniversary 💔💔\"";
+
+    console.log('Generating title...\n')
+    const response = await ollama.chat({
+        model: 'qwen3:8b',
+        messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: text },
+        ],
+        stream: true,
+    });
+
+    let title = "";
+
+    for await (const chunk of response) {
+        process.stdout.write(chunk.message.content);
+        title += chunk.message.content;
+    }
+
+    console.log('\n');
+
+    return cleanTitle(title);
 }
 
 async function makeVideo() {
+	const rawScript = await readFile('./script.txt', { encoding: 'utf8' });
+	const script = rawScript.trim().split('\n').map(v => v.trim()).filter(v => !!v).join(' ').trim();
+	
 	await writeFile('transcript.txt', script);
 	
     const project = new sfmpg({ preset: 'youtube-short' });
 
 	const duration = await tts(script, 'audio.mp3');
 	
-	const captions = await getCaptions();
+    // await genCaptions();
 
     await project.load([
         {
             type: 'video',
             url: 'background.mp4',
             volume: 0,
-            duration,
+            duration: duration + 1,
         },
         {
             type: 'audio',
@@ -201,11 +194,17 @@ async function makeVideo() {
             volume: 0.2,
             loop: true,
         },
-		...captions
+        {
+            type: 'subtitle',
+            url: './captions/output.ass',
+            position: 0,
+        }
     ]);
 
+    const title = await genTitle(script);
+
     await project.export({
-        outputPath: "./video.mp4",
+        outputPath: `${title}.mp4`,
         onProgress: ({ percent }) => {
 			if (percent) console.log(`${percent}% complete`)
 		},

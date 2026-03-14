@@ -17,6 +17,9 @@ importers:
       google-tts-api:
         specifier: ^2.0.2
         version: 2.0.2
+      ollama:
+        specifier: ^0.6.3
+        version: 0.6.3
       simple-ffmpegjs:
         specifier: ^0.5.4
         version: 0.5.4
@@ -53,9 +56,15 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
+  ollama@0.6.3:
+    resolution: {integrity: sha512-KEWEhIqE5wtfzEIZbDCLH51VFZ6Z3ZSa6sIOg/E/tBV8S51flyqBOXi+bRxlOYKDf8i327zG9eSTb8IJxvm3Zg==}
+
   simple-ffmpegjs@0.5.4:
     resolution: {integrity: sha512-o4U36MbPzAZXevD/66FNLb1TfG1JLdYKTPJ2aVNsihM3N5IuNCEPR3fefHU/pS7vLIBWAJcp89NAvf0v+lQO9g==}
     engines: {node: '>=20'}
+
+  whatwg-fetch@3.6.20:
+    resolution: {integrity: sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg==}
 
   which@1.3.1:
     resolution: {integrity: sha512-HxJdYWq1MTIQbJ3nw0cqssHoTNU267KlrDuGZ1WYlxDStUtKUhOaJmh112/TZmHxxUfuJqPXSOm7tDyas0OSIQ==}
@@ -88,7 +97,13 @@ snapshots:
 
   isexe@2.0.0: {}
 
+  ollama@0.6.3:
+    dependencies:
+      whatwg-fetch: 3.6.20
+
   simple-ffmpegjs@0.5.4: {}
+
+  whatwg-fetch@3.6.20: {}
 
   which@1.3.1:
     dependencies:
